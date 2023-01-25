@@ -2,36 +2,37 @@
 const core = require('@actions/core');
 const rsasign = require('jsrsasign');
 const fs = require('fs');
-const { default: got } = require('got');
+const {default: got} = require('got');
 
 const defaultKubernetesTokenPath = '/var/run/secrets/kubernetes.io/serviceaccount/token'
+
 /***
  * Authenticate with Vault and retrieve a Vault token that can be used for requests.
  * @param {string} method
  * @param {import('got').Got} client
  */
 async function retrieveToken(method, client) {
-    const path = core.getInput('path', { required: false }) || method;
+    const path = core.getInput('path', {required: false}) || method;
 
     switch (method) {
         case 'approle': {
-            const vaultRoleId = core.getInput('roleId', { required: true });
-            const vaultSecretId = core.getInput('secretId', { required: true });
-            return await getClientToken(client, method, path, { role_id: vaultRoleId, secret_id: vaultSecretId });
+            const vaultRoleId = core.getInput('roleId', {required: true});
+            const vaultSecretId = core.getInput('secretId', {required: true});
+            return await getClientToken(client, method, path, {role_id: vaultRoleId, secret_id: vaultSecretId});
         }
         case 'github': {
-            const githubToken = core.getInput('githubToken', { required: true });
-            return await getClientToken(client, method, path, { token: githubToken });
+            const githubToken = core.getInput('githubToken', {required: true});
+            return await getClientToken(client, method, path, {token: githubToken});
         }
         case 'jwt': {
             /** @type {string} */
             let jwt;
-            const role = core.getInput('role', { required: false });
-            const privateKeyRaw = core.getInput('jwtPrivateKey', { required: false });
+            const role = core.getInput('role', {required: false});
+            const privateKeyRaw = core.getInput('jwtPrivateKey', {required: false});
             const privateKey = Buffer.from(privateKeyRaw, 'base64').toString();
-            const keyPassword = core.getInput('jwtKeyPassword', { required: false });
-            const tokenTtl = core.getInput('jwtTtl', { required: false }) || '3600'; // 1 hour
-            const githubAudience = core.getInput('jwtGithubAudience', { required: false });
+            const keyPassword = core.getInput('jwtKeyPassword', {required: false});
+            const tokenTtl = core.getInput('jwtTtl', {required: false}) || '3600'; // 1 hour
+            const githubAudience = core.getInput('jwtGithubAudience', {required: false});
 
             if (!privateKey) {
                 jwt = await core.getIDToken(githubAudience)
@@ -39,24 +40,24 @@ async function retrieveToken(method, client) {
                 jwt = generateJwt(privateKey, keyPassword, Number(tokenTtl));
             }
 
-            return await getClientToken(client, method, path, { jwt: jwt, role: role });
+            return await getClientToken(client, method, path, {jwt: jwt, role: role});
         }
         case 'kubernetes': {
-            const role = core.getInput('role', { required: true })
-            const tokenPath = core.getInput('kubernetesTokenPath', { required: false }) || defaultKubernetesTokenPath
+            const role = core.getInput('role', {required: true})
+            const tokenPath = core.getInput('kubernetesTokenPath', {required: false}) || defaultKubernetesTokenPath
             const data = fs.readFileSync(tokenPath, 'utf8')
             if (!(role && data) && data != "") {
                 throw new Error("Role Name must be set and a kubernetes token must set")
             }
-            return await getClientToken(client, method, path, { jwt: data, role: role })
+            return await getClientToken(client, method, path, {jwt: data, role: role})
         }
 
         default: {
             if (!method || method === 'token') {
-                return core.getInput('token', { required: true });
+                return core.getInput('token', {required: true});
             } else {
                 /** @type {string} */
-                const payload = core.getInput('authPayload', { required: true });
+                const payload = core.getInput('authPayload', {required: true});
                 if (!payload) {
                     throw Error('When using a custom authentication method, you must provide the payload');
                 }
@@ -74,7 +75,7 @@ async function retrieveToken(method, client) {
  */
 function generateJwt(privateKey, keyPassword, ttl) {
     const alg = 'RS256';
-    const header = { alg: alg, typ: 'JWT' };
+    const header = {alg: alg, typ: 'JWT'};
     const now = rsasign.KJUR.jws.IntDate.getNow();
     const payload = {
         iss: 'vault-action',
@@ -112,7 +113,8 @@ async function getClientToken(client, method, path, payload) {
     /** @type {import('got').Response<VaultLoginResponse>} */
     let response;
     try {
-        response = await client.post(`v1/auth/${path}/login`, options);
+        const uri = `v1/auth/${path}/login${options.json.username && '/' + options.json.username || ""}`;
+        response = await client.post(uri, options);
     } catch (err) {
         if (err instanceof got.HTTPError) {
             throw Error(`failed to retrieve vault token. code: ${err.code}, message: ${err.message}, vaultResponse: ${JSON.stringify(err.response.body)}`)
